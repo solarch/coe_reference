@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:data-mapper="http://www.mulesoft.org/schema/mule/ee/data-mapper"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw"
+	xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/ee/data-mapper http://www.mulesoft.org/schema/mule/ee/data-mapper/current/mule-data-mapper.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/sfdc http://www.mulesoft.org/schema/mule/sfdc/current/mule-sfdc.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+	<http:listener-config name="HTTP_Listener_Configuration"
+		host="0.0.0.0" port="8881" doc:name="HTTP Listener Configuration" />
+	<sfdc:config name="Salesforce__Basic_Authentication"
+		username="joeg@modusbox.com" password="gohm92591" securityToken="7I2zHbjdzHElr6ylA4IfVA05"
+		doc:name="Salesforce: Basic Authentication" />
+	<flow name="getSfdcAccountsFlow">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/sfdc" doc:name="HTTP" allowedMethods="GET" />
+		<sfdc:query config-ref="Salesforce__Basic_Authentication"
+			doc:name="Salesforce"
+			query="dsql:SELECT BillingCity,BillingCountry,BillingPostalCode,BillingState,BillingStreet,Name FROM Account WHERE BillingPostalCode = '94118'" />
+		<dw:transform-message metadata:id="73c84293-63c7-4e16-8514-7529bd89249e"
+			doc:name="Transform Message">
+			<dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+payload]]></dw:set-payload>
+		</dw:transform-message>
+		<logger message="#[&quot;***************: &quot; + payload.Name]"
+			level="DEBUG" doc:name="Logger" />
+	</flow>
+	<batch:job name="accountsCSVBatch">
+		<batch:input>
+			<file:inbound-endpoint path="input"
+				moveToDirectory="output" responseTimeout="10000"
+				doc:name="File">
+				<file:filename-regex-filter pattern=".*csv"
+					caseSensitive="false" />
+			</file:inbound-endpoint>
+
+			<dw:transform-message metadata:id="b1256040-819f-4090-bb5d-591ec43ea5be"
+				doc:name="Data Weave">
+				<dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map ((value , index) -> {
+	"Billing Street": value."Billing Street",
+	"Billing City": value."Billing City",
+	"Billing Country": value."Billing Country",
+	"Billing State": value."Billing State",
+	Name: value.Name,
+	BillingPostalCode: value.BillingPostalCode
+})]]></dw:set-payload>
+			</dw:transform-message>
+			<set-variable variableName="size" value="#[payload.size()]"
+				doc:name="Variable" />
+		</batch:input>
+		<batch:process-records>
+			<batch:step name="Batch_Step_1">
+				<set-variable variableName="fname" value="#[payload.Name]"
+					doc:name="Variable" />
+				<batch:set-record-variable variableName="rname"
+					value="#[payload.Name]" doc:name="Record Variable" />
+				<logger level="INFO" doc:name="Logger" />
+			</batch:step>
+			<batch:step name="Batch_Step_2">
+				<logger level="INFO" doc:name="Logger" />
+			</batch:step>
+		</batch:process-records>
+		<batch:on-complete>
+			<logger
+				message="#['\n\nProcessed: ' + payload.processedRecords + ' Failed: ' + payload.failedRecords]"
+				level="INFO" doc:name="Logger" />
+		</batch:on-complete>
+	</batch:job>
+
+
+	<flow name="getCSVAccountsFlow" initialState="stopped">
+		<file:inbound-endpoint path="src/main/resources/input"
+			moveToDirectory="src/main/resources/output" responseTimeout="10000"
+			doc:name="File">
+			<file:filename-regex-filter pattern=".*csv"
+				caseSensitive="false" />
+		</file:inbound-endpoint>
+		<dw:transform-message metadata:id="6b5dfac1-0410-40c4-b920-d7fdcd60333c"
+			doc:name="Transform Message">
+			<dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map ((value , index) -> {
+	Name: value.Name,
+	BillingStreet: value.BillingStreet,
+	BillingCity: value.BillingCity,
+	BillingState: value.BillingState,
+	BillingPostalCode: value.BillingPostalCode,
+	BillingCountry: value.BillingCountry
+})]]></dw:set-payload>
+		</dw:transform-message>
+		<foreach doc:name="For Each">
+			<logger message="#[payload]" level="DEBUG" doc:name="Logger" />
+		</foreach>
+		<logger message="#[payload]" level="DEBUG" doc:name="Logger" />
+	</flow>
+</mule>
